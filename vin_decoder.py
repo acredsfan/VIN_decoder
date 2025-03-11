@@ -27,7 +27,7 @@ def install_packages(packages, python_exec):
 python_executable = setup_virtualenv()
 
 # List of required packages
-required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl"]
+required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl", "pyngrok"]
 install_packages(required_packages, python_executable)
 
 from flask import Flask, request, render_template, send_file, redirect, url_for, session
@@ -37,6 +37,8 @@ from werkzeug.utils import secure_filename
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import uuid
+from pyngrok import ngrok
+from flask import Flask
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -173,7 +175,11 @@ def favicon():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+	public_url = ngrok.connect(port).public_url
+    print(f" * ngrok tunnel available at {public_url}")
+
+    # Launch Flask app
+    app.run(host='0.0.0.0', port=port)
 
 # HTML Templates
 # index.html
