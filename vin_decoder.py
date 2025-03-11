@@ -27,7 +27,7 @@ def install_packages(packages, python_exec):
 python_executable = setup_virtualenv()
 
 # List of required packages
-required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl", "pyngrok"]
+required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl", "pyngrok", "pandas"]
 install_packages(required_packages, python_executable)
 
 from flask import Flask, request, render_template, send_file, redirect, url_for, session
