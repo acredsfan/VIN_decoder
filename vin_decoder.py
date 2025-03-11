@@ -175,11 +175,14 @@ def favicon():
 
 
 if __name__ == '__main__':
-	public_url = ngrok.connect(port).public_url
-    print(f" * ngrok tunnel available at {public_url}")
+    port = 5000
 
-    # Launch Flask app
-    app.run(host='0.0.0.0', port=port)
+    # Start ngrok tunnel
+    public_url = ngrok.connect(port, bind_tls=True).public_url
+    print(f" * ngrok URL: {public_url}")
+
+    # Run Flask app
+    app.run(debug=True, host='0.0.0.0', port=port)
 
 # HTML Templates
 # index.html
