@@ -28,7 +28,7 @@ def install_packages(packages, python_exec):
 python_executable = setup_virtualenv()
 
 # List of required packages
-required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl", "pyngrok", "pandas"]
+required_packages = ["flask", "requests", "pandas", "werkzeug", "flask_limiter", "openpyxl", "pyngrok", "pandas", "python-dotenv"]
 install_packages(required_packages, python_executable)
 
 from flask import Flask, request, render_template, send_file, redirect, url_for, session
@@ -43,11 +43,13 @@ from flask import Flask
 
 dotenv.load_dotenv()
 
+# Load Public URL from .env
+public_url = os.getenv('PUBLIC_URL')
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
-public_url =
 
 # Rate Limiter to prevent abuse
 limiter = Limiter(
@@ -179,11 +181,11 @@ def favicon():
 
 
 if __name__ == '__main__':
-    port = 5000
+    port = "5000"
 
     # Start ngrok tunnel
     public_url = ngrok.connect(port, bind_tls=True).public_url
-    print(f" * ngrok URL: {public_url}")
+    print(f" * Public URL: {public_url}")
 
     # Run Flask app
     app.run(debug=True, host='0.0.0.0', port=port)
