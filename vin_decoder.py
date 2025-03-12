@@ -10,6 +10,18 @@ from pyngrok import ngrok
 from flask import Flask
 import dotenv
 
+# Check and create virtual environment if it doesn't exist
+def setup_virtualenv(venv_name='venv'):
+    if not os.path.exists(venv_name):
+        subprocess.check_call([sys.executable, '-m', 'venv', venv_name])
+
+    if sys.platform == 'win32':
+        activate_script = os.path.join(venv_name, 'Scripts', 'python.exe')
+    else:
+        activate_script = os.path.join(venv_name, 'bin', 'python')
+
+    return activate_script
+
 os.system("pkill ngrok")
 dotenv.load_dotenv()
 
