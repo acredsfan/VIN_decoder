@@ -10,6 +10,7 @@ from pyngrok import ngrok
 from flask import Flask
 import dotenv
 
+os.system("pkill ngrok")
 dotenv.load_dotenv()
 
 # Load Public URL from .env
