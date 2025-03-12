@@ -1,4 +1,6 @@
 import os
+import shutil
+
 from flask import Flask, request, render_template, send_file, redirect, url_for, session
 import requests
 import pandas as pd
@@ -52,6 +54,17 @@ NHTSA_API_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/'
 # Helper functions
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+def clean_uploads_folder():
+    for filename in os.listdir(app.config['UPLOAD_FOLDER']):
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print('Failed to delete %s. Reason: %s' % (file_path, e))
 
 
 def get_vin_data(vin):
@@ -141,9 +154,13 @@ def index():
                 # Store the file path in session for download
                 session['results_filepath'] = results_filepath
 
+                # Cleanup Uploads Folder
+                clean_uploads_folder()
+
                 # Render results page
                 return render_template('results.html', tables=[results_df.to_html(classes='table table-bordered table-striped', index=False)],
                                        download_link=url_for('download', filename=os.path.basename(results_filepath)))
+
             except Exception as e:
                 return render_template('index.html', error=f"Error processing file: {str(e)}")
 
