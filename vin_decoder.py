@@ -148,7 +148,7 @@ def index():
                 results_df = pd.DataFrame(vin_details_list)
 
                 # Replace any NaN values with 'Not Found' to avoid empty cells in the HTML output
-                results_df.fillna('Not Found', inplace=True)
+                results_df = results_df.astype(str).fillna('Not Found')
 
                 # Save to Excel
                 results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"decoded_vins_results_{uuid.uuid4().hex}.xlsx")
