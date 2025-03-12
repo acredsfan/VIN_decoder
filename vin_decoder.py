@@ -152,6 +152,9 @@ def favicon():
 if __name__ == '__main__':
     port = 5000
 
+    # Before running ngrok, terminate existing instances:
+    os.system("pkill ngrok")
+
     # Start ngrok tunnel
     public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
     print(f" * Public URL: {public_url}")
