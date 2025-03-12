@@ -44,7 +44,7 @@ app.secret_key = os.urandom(24)
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["60 per minute"]
+    default_limits=["500 per minute"]
 )
 
 # Ensure upload folder exists
@@ -104,7 +104,7 @@ def find_vin_column(df):
 
 # Routes
 @app.route('/', methods=['GET', 'POST'])
-@limiter.limit("60 per minute")
+@limiter.limit("500 per minute")
 def index():
     if request.method == 'POST':
         # Handle file upload
