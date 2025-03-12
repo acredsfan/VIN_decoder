@@ -104,7 +104,7 @@ def find_vin_column(df):
 
 # Routes
 @app.route('/', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("60 per minute")
 def index():
     if request.method == 'POST':
         # Handle file upload
