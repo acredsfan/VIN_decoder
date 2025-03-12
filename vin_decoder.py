@@ -184,7 +184,7 @@ if __name__ == '__main__':
     port = 5000
 
     # Start ngrok tunnel
-    public_url = ngrok.connect(port, subdomain=ngrok_subdomain).public_url
+    public_url = ngrok.connect(port, subdomain=ngrok_subdomain, bind_tls=True).public_url
     print(f" * Public URL: {public_url}")
 
     # Run Flask app
