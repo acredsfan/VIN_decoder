@@ -26,7 +26,10 @@ def setup_virtualenv(venv_name='venv'):
 
     return activate_script
 
-os.system("pkill ngrok")
+# kill ngrok agents via admin to prevent multiple agents running
+os.system("taskkill /f /im ngrok.exe")
+
+# Load .env file
 dotenv.load_dotenv()
 
 # Load Public URL from .env
