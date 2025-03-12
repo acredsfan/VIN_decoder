@@ -9,6 +9,8 @@ import uuid
 from pyngrok import ngrok
 from flask import Flask
 import dotenv
+import sys
+import subprocess
 
 # Check and create virtual environment if it doesn't exist
 def setup_virtualenv(venv_name='venv'):
