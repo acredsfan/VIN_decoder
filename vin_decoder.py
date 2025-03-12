@@ -1,7 +1,6 @@
 import subprocess
 import sys
 import os
-import dotenv
 
 
 # Check and create virtual environment if it doesn't exist
@@ -40,6 +39,7 @@ from flask_limiter.util import get_remote_address
 import uuid
 from pyngrok import ngrok
 from flask import Flask
+import dotenv
 
 dotenv.load_dotenv()
 
