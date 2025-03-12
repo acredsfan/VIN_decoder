@@ -44,7 +44,7 @@ import dotenv
 dotenv.load_dotenv()
 
 # Load Public URL from .env
-ngrok_subdomain = os.getenv('PUBLIC_URL')
+custom_domain = os.getenv('PUBLIC_URL')
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -184,7 +184,7 @@ if __name__ == '__main__':
     port = 5000
 
     # Start ngrok tunnel
-    public_url = ngrok.connect(port, subdomain=ngrok_subdomain, bind_tls=True).public_url
+    public_url = ngrok.connect(port, domain=ngrok_subdomain, bind_tls=True).public_url
     print(f" * Public URL: {public_url}")
 
     # Run Flask app
