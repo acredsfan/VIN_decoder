@@ -44,7 +44,7 @@ import dotenv
 dotenv.load_dotenv()
 
 # Load Public URL from .env
-public_url = os.getenv('PUBLIC_URL')
+ngrok_subdomain = os.getenv('PUBLIC_URL')
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -181,10 +181,10 @@ def favicon():
 
 
 if __name__ == '__main__':
-    port = "5000"
+    port = 5000
 
     # Start ngrok tunnel
-    public_url = ngrok.connect(port, bind_tls=True).public_url
+    public_url = ngrok.connect(port, subdomain=ngrok_subdomain).public_url
     print(f" * Public URL: {public_url}")
 
     # Run Flask app
