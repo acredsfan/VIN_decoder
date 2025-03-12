@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import dotenv
 
 
 # Check and create virtual environment if it doesn't exist
@@ -40,10 +41,13 @@ import uuid
 from pyngrok import ngrok
 from flask import Flask
 
+dotenv.load_dotenv()
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
+public_url =
 
 # Rate Limiter to prevent abuse
 limiter = Limiter(
