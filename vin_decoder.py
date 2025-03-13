@@ -79,6 +79,7 @@ def process_vins_in_background(vin_series, batch_size=100):
     for current_batch, start in enumerate(range(0, len(vin_series), batch_size), 1):
         STATUS['current'] = current_batch
         STATUS['progress'] = f"Processing Batch {current_batch} of {total_batches}"
+        print(STATUS)
 
         batch = vin_series[start:start + batch_size]
         for vin in batch:
