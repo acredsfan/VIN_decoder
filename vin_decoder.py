@@ -1,7 +1,7 @@
 import os
 import shutil
 
-from flask import Flask, request, render_template, send_file, redirect, url_for, session
+from flask import Flask, request, render_template, send_file, url_for, session
 import requests
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -9,7 +9,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import uuid
 from pyngrok import ngrok
-from flask import Flask
 import dotenv
 import sys
 import subprocess
@@ -53,7 +52,6 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
 
 NHTSA_API_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/'
 
-
 # Helper functions
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
@@ -85,14 +83,7 @@ def get_vin_data(vin):
         }
         return vin_data
     else:
-        return {
-            "Make": "Invalid VIN",
-            "Model": "Invalid VIN",
-            "Model Year": "Invalid VIN",
-            "Body Type": "Invalid VIN",
-            "Vehicle Class": "Invalid VIN",
-            "Fuel Type": "Invalid VIN",
-        }
+        return {key: "Invalid VIN" for key in ["Make", "Model", "Model Year", "Body Type", "Vehicle Class", "Fuel Type"]}
 
 
 def find_vin_column(df):
@@ -102,12 +93,10 @@ def find_vin_column(df):
     return None
 
 
-# Routes
 @app.route('/', methods=['GET', 'POST'])
 @limiter.limit("500 per minute")
 def index():
     if request.method == 'POST':
-        # Handle file upload
         if 'file' not in request.files:
             return render_template('index.html', error="No file part")
         file = request.files['file']
@@ -118,141 +107,51 @@ def index():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
             file.save(filepath)
 
-            # Process the spreadsheet
             try:
                 df = pd.read_excel(filepath) if unique_filename.endswith(('xlsx', 'xls')) else pd.read_csv(filepath)
                 vin_column = find_vin_column(df)
                 if vin_column is None:
                     return render_template('index.html', error="No valid VIN column found in the spreadsheet")
 
-                # Get VIN details for each row
+                batch_size = 100
+                vin_series = df[vin_column].dropna().astype(str).str.strip().str.upper()
                 vin_details_list = []
-                for vin in df[vin_column].dropna().astype(str):
-                    vin = vin.strip().upper()
-                    if len(vin) == 17:
-                        vin_data = get_vin_data(vin)
-                        vin_data['VIN'] = vin
-                        vin_details_list.append(vin_data)
-                    else:
-                        vin_details_list.append({
-                            "VIN": vin,
-                            "Make": "Invalid VIN",
-                            "Model": "Invalid VIN",
-                            "Model Year": "Invalid VIN",
-                            "Body Type": "Invalid VIN",
-                            "Vehicle Class": "Invalid VIN",
-                            "Fuel Type": "Invalid VIN",
-                        })
 
-                # Create a DataFrame with results
-                results_df = pd.DataFrame(vin_details_list)
+                for start in range(0, len(vin_series), batch_size):
+                    batch = vin_series[start:start + batch_size]
+                    batch_results = [get_vin_data(vin) | {'VIN': vin} if len(vin) == 17 else
+                                     {"VIN": vin, "Make": "Invalid VIN", "Model": "Invalid VIN", "Model Year": "Invalid VIN",
+                                      "Body Type": "Invalid VIN", "Vehicle Class": "Invalid VIN", "Fuel Type": "Invalid VIN"}
+                                     for vin in batch]
+                    vin_details_list.extend(batch_results)
 
-                # Replace any NaN values with 'Not Found' to avoid empty cells in the HTML output
-                results_df = results_df.astype(str).fillna('Not Found')
+                results_df = pd.DataFrame(vin_details_list).astype(str).fillna('Not Found')
 
-                # Save to Excel
                 results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"decoded_vins_results_{uuid.uuid4().hex}.xlsx")
                 results_df.to_excel(results_filepath, index=False)
 
-                # Store the file path in session for download
                 session['results_filepath'] = results_filepath
 
-                # Cleanup Uploads Folder
                 clean_uploads_folder()
 
-                # Render results page
                 return render_template('results.html', tables=[results_df.to_html(classes='table table-bordered table-striped', index=False)],
                                        download_link=url_for('download', filename=os.path.basename(results_filepath)))
-
             except Exception as e:
                 return render_template('index.html', error=f"Error processing file: {str(e)}")
 
     return render_template('index.html')
 
-
 @app.route('/download/<filename>')
 def download(filename):
-    results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(results_filepath):
-        return send_file(results_filepath, as_attachment=True)
-    else:
-        return "No file available for download", 404
-
+    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    return send_file(path, as_attachment=True) if os.path.exists(path) else "No file available for download", 404
 
 @app.route('/favicon.ico')
 def favicon():
     return send_file(os.path.join(app.root_path, 'static', 'favicon.ico'))
 
-
 if __name__ == '__main__':
-    port = 5000
-
-    # Before running ngrok, terminate existing instances:
     os.system("sudo pkill ngrok")
-
-    # Start ngrok tunnel
-    public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
+    public_url = ngrok.connect(5000, domain=custom_domain, bind_tls=True).public_url
     print(f" * Public URL: {public_url}")
-
-    # Run Flask app
-    app.run(debug=True, host='0.0.0.0', port=port)
-
-# HTML Templates
-# index.html
-index_html = '''
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIN Decoder</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-</head>
-<body>
-<div class="container mt-5">
-    <h1 class="text-center">VIN Decoder</h1>
-    <form method="POST" enctype="multipart/form-data">
-        <div class="form-group">
-            <label for="file">Upload Spreadsheet (xlsx, xls, csv):</label>
-            <input type="file" class="form-control-file" id="file" name="file" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Upload and Decode VINs</button>
-    </form>
-    {% if error %}
-        <div class="alert alert-danger mt-3" role="alert">
-            {{ error }}
-        </div>
-    {% endif %}
-</div>
-</body>
-</html>
-'''
-
-# results.html
-results_html = '''
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIN Decoder Results</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-</head>
-<body>
-<div class="container mt-5">
-    <h1 class="text-center">VIN Decoder Results</h1>
-    <div class="table-responsive">
-        {{ tables|safe }}
-    </div>
-    <a href="{{ download_link }}" class="btn btn-success mt-3">Download Results as Excel</a>
-</div>
-</body>
-</html>
-'''
-
-# Save HTML Templates to Files
-with open('templates/index.html', 'w') as f:
-    f.write(index_html)
-
-with open('templates/results.html', 'w') as f:
-    f.write(results_html)
+    app.run(debug=True, host='0.0.0.0', port=5000)
