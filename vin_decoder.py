@@ -14,7 +14,7 @@ from flask_limiter.util import get_remote_address
 from pyngrok import ngrok
 
 # Clean ngrok agents
-os.system("sudo pkill ngrok")
+os.system("pkill ngrok")
 
 # Load environment variables
 dotenv.load_dotenv()
@@ -194,7 +194,11 @@ setInterval(() => {
 
 if __name__ == '__main__':
     port = 5000
-    os.system("sudo pkill ngrok")
-    public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
-    print(f" * Public URL: {public_url}")
+
+    os.system("pkill ngrok")
+
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
+        print(f" * Public URL: {public_url}")
+
     app.run(debug=True, host='0.0.0.0', port=port)
