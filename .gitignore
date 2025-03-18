@@ -1,3 +1,5 @@
 /.idea
 /.vscode
 /uploads
+/templates/index.html
+/templates/status.html
