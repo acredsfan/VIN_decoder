@@ -10,6 +10,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 # from pyngrok import ngrok
 import re
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Clean ngrok agents
 # os.system("pkill ngrok")
@@ -25,6 +26,8 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+APPLICATION_ROOT = '/vin-lookup'
 
 # Rate Limiter setup
 limiter = Limiter(
@@ -161,7 +164,7 @@ def process_vins_in_background(vin_series, batch_size=100):
     STATUS["progress"] = "Completed"
     STATUS["file"] = os.path.basename(results_filepath)
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route(APPLICATION_ROOT + '/', methods=['GET', 'POST'])
 @limiter.limit("500 per minute")
 def index():
     global STATUS
