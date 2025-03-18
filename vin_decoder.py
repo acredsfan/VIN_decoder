@@ -112,17 +112,18 @@ def process_vins_in_background(vin_series, batch_size=100):
     STATUS["completed"] = False
 
     total_batches = (len(vin_series) - 1) // batch_size + 1
-    for current_batch, start in enumerate(range(0, len(vin_series), batch_size), 1):
-        STATUS['current'] = current_batch
-        STATUS['progress'] = f"Processing Batch {current_batch} of {total_batches}, VINs {start + 1} to {start + batch_size}"
-        print(STATUS)
+    vin_count = 0
 
+    for current_batch, start in enumerate(range(0, len(vin_series), batch_size), 1):
         batch = vin_series[start:start + batch_size]
-        for vin in batch:
+
+        for idx, vin in enumerate(batch, start=1):
+            current_position = start + idx
+            STATUS['progress'] = f"Processing VIN {current_position} of {STATUS['total']}"
             vin = vin.strip().upper()
             if len(vin) == 17:
                 vin_data = get_vin_data(vin)
-                mpg_data = get_mpg(vin_data['Make'], vin_data['Model'], vin_data['Model Year'])
+                mpg_data = get_mpg(vin_data["Make"], vin_data["Model"], vin_data["Model Year"])
                 vin_data.update(mpg_data)
                 vin_data['VIN'] = vin
                 vin_details_list.append(vin_data)
@@ -140,9 +141,20 @@ def process_vins_in_background(vin_series, batch_size=100):
                     "MPG Combined": "Invalid VIN"
                 })
 
-    results_df = pd.DataFrame(vin_details_list).astype(str).fillna('Not Found')
+            vin_count += 1
+            STATUS['current'] = vin_count
 
-    results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"decoded_vins_results_{uuid.uuid4().hex}.xlsx")
+    # Ensure VIN column is first in output
+    results_df = pd.DataFrame(vin_details_list).astype(str).fillna('Not Found')
+    cols = results_df.columns.tolist()
+    if 'VIN' in cols:
+        cols.insert(0, cols.pop(cols.index('VIN')))
+        results_df = results_df[cols]
+
+    results_filepath = os.path.join(
+        app.config['UPLOAD_FOLDER'],
+        f"decoded_vins_results_{uuid.uuid4().hex}.xlsx"
+    )
     results_df.to_excel(results_filepath, index=False)
 
     STATUS["completed"] = True
@@ -235,7 +247,7 @@ const interval = setInterval(() => {
         window.location.href = '/download/' + data.file;
       }
     });
-}, 5000);
+}, 3000);  // update every 3 seconds
 </script>
 </body>
 </html>
