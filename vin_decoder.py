@@ -8,17 +8,17 @@ import pandas as pd
 from werkzeug.utils import secure_filename
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from pyngrok import ngrok
+# from pyngrok import ngrok
 import re
 
 # Clean ngrok agents
-os.system("pkill ngrok")
+# os.system("pkill ngrok")
 
 # Load environment variables
-dotenv.load_dotenv()
+# dotenv.load_dotenv()
 
 # Get custom domain from .env
-custom_domain = os.getenv('PUBLIC_URL')
+# custom_domain = os.getenv('PUBLIC_URL')
 
 # Flask app setup
 app = Flask(__name__)
@@ -257,10 +257,10 @@ const interval = setInterval(() => {
 if __name__ == '__main__':
     port = 5000
 
-    os.system("pkill ngrok")
+    # os.system("pkill ngrok")
 
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
-        print(f" * Public URL: {public_url}")
+    # if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        # public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
+        # print(f" * Public URL: {public_url}")
 
     app.run(debug=True, host='0.0.0.0', port=port)
