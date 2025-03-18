@@ -1,0 +1,23 @@
+
+<!doctype html>
+<html>
+<head><title>Status</title></head>
+<body>
+<p id="status">Starting...</p>
+<script>
+let downloadTriggered = false;
+const interval = setInterval(() => {
+  fetch('/status')
+    .then(response => response.json())
+    .then(data => {
+      document.getElementById('status').innerText = data.progress;
+      if (data.completed && !downloadTriggered) {
+        downloadTriggered = true;
+        clearInterval(interval);
+        window.location.href = '/download/' + data.file;
+      }
+    });
+}, 5000);
+</script>
+</body>
+</html>
