@@ -11,7 +11,7 @@ from flask_limiter.util import get_remote_address
 from pyngrok import ngrok
 import re
 
-Clean ngrok agents
+# Clean ngrok agents
 os.system("pkill ngrok")
 
 # Load environment variables
