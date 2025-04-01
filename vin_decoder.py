@@ -266,4 +266,4 @@ if __name__ == '__main__':
         # public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
         # print(f" * Public URL: {public_url}")
 
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)
