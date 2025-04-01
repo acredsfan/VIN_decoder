@@ -150,13 +150,15 @@ with open('templates/status.html', 'w') as f:
 <p id="status">Starting...</p>
 <script>
 const interval = setInterval(() => {
-  fetch('/vin-lookup/status')
+  // Using a relative URL: since the current URL is /vin-lookup/ this becomes /vin-lookup/status
+  fetch('status')
     .then(res => res.json())
     .then(data => {
       document.getElementById('status').innerText = data.progress;
       if (data.completed) {
         clearInterval(interval);
-        window.location.href = '/vin-lookup/download/' + data.file;
+        // Relative URL: becomes /vin-lookup/download/<filename>
+        window.location.href = 'download/' + data.file;
       }
     });
 }, 3000);
