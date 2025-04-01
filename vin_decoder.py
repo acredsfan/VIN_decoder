@@ -2,7 +2,7 @@ import os
 import threading
 import uuid
 import dotenv
-from flask import Flask, request, render_template, send_file, session, jsonify, url_for
+from flask import Flask, request, render_template, send_file, jsonify
 import requests
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -14,7 +14,6 @@ import re
 # Load environment variables
 dotenv.load_dotenv()
 
-# Flask setup with explicit paths
 BASE_DIR = '/home/pi/VIN_decoder'
 app = Flask(
     __name__,
@@ -26,19 +25,15 @@ app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
-APPLICATION_ROOT = '/VIN_decoder'
-
 limiter = Limiter(get_remote_address, app=app, default_limits=["500 per minute"])
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 NHTSA_API_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/'
-
 STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": False, "file": ""}
 
 VIN_REGEX = re.compile(r'^(?!.*[IOQ])[A-HJ-NPR-Z0-9]{17}$', re.IGNORECASE)
 
-# Helper Functions (unchanged)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -50,7 +45,7 @@ def get_vin_data(vin):
             "Make": next((item['Value'] for item in results if item['Variable'] == 'Make'), "Not Found"),
             "Model": next((item['Value'] for item in results if item['Variable'] == 'Model'), "Not Found"),
             "Model Year": next((item['Value'] for item in results if item['Variable'] == 'Model Year'), "Not Found"),
-            "Trim": next((item['Value'] for item in results if item ['Variable'] == 'Trim'), "Not Found"),
+            "Trim": next((item['Value'] for item in results if item['Variable'] == 'Trim'), "Not Found"),
             "Body Type": next((item['Value'] for item in results if item['Variable'] == 'Body Class'), "Not Found"),
             "Vehicle Type": next((item['Value'] for item in results if item['Variable'] == 'Vehicle Type'), "Not Found"),
             "Vehicle Class": next((item['Value'] for item in results if item['Variable'] == 'Gross Vehicle Weight Rating From'), "Not Found"),
@@ -87,7 +82,6 @@ def process_vins_in_background(vin_series, batch_size=100):
         for vin in batch:
             STATUS['current'] = vin_count
             STATUS['progress'] = f"Processing VIN {vin_count+1}/{STATUS['total']}"
-
             vin_data = get_vin_data(vin)
             mpg_data = get_mpg(vin_data["Make"], vin_data["Model"], vin_data["Model Year"])
             vin_data.update(mpg_data)
@@ -98,10 +92,9 @@ def process_vins_in_background(vin_series, batch_size=100):
     results_df = pd.DataFrame(vin_details_list).fillna('Not Found')
     results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"decoded_{uuid.uuid4().hex}.xlsx")
     results_df.to_excel(results_filepath, index=False)
-
     STATUS.update({"completed": True, "progress": "Completed", "file": os.path.basename(results_filepath)})
 
-@app.route(f'{APPLICATION_ROOT}/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET', 'POST'])
 @limiter.limit("500 per minute")
 def index():
     global STATUS
@@ -116,20 +109,19 @@ def index():
             if vin_column:
                 vin_series = df[vin_column].dropna().astype(str).str.upper().unique()
                 threading.Thread(target=process_vins_in_background, args=(vin_series,)).start()
-                return render_template('status.html', root=APPLICATION_ROOT)
+                return render_template('status.html')
             else:
-                return render_template('index.html', error="No VIN column found.", root=APPLICATION_ROOT)
-    return render_template('index.html', root=APPLICATION_ROOT)
+                return render_template('index.html', error="No VIN column found.")
+    return render_template('index.html')
 
-@app.route(f'{APPLICATION_ROOT}/status')
+@app.route('/status')
 def status():
     return jsonify(STATUS)
 
-@app.route(f'{APPLICATION_ROOT}/download/<filename>')
+@app.route('/download/<filename>')
 def download(filename):
     return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
 
-# Templates
 with open('templates/index.html', 'w') as f:
     f.write('''
 <!doctype html>
@@ -142,7 +134,7 @@ with open('templates/index.html', 'w') as f:
     <input type="file" name="file" required>
     <button type="submit">Decode VINs</button>
 </form>
-{% if error %}<p>{{error}}</p>{% endif %}
+{% if error %}<p>{{ error }}</p>{% endif %}
 </body>
 </html>
 ''')
@@ -156,13 +148,13 @@ with open('templates/status.html', 'w') as f:
 <p id="status">Starting...</p>
 <script>
 const interval = setInterval(() => {
-  fetch('{{ root }}/status')
+  fetch('/status')
     .then(res => res.json())
     .then(data => {
       document.getElementById('status').innerText = data.progress;
       if(data.completed){
         clearInterval(interval);
-        window.location.href = '{{ root }}/download/' + data.file;
+        window.location.href = '/download/' + data.file;
       }
     });
 }, 3000);
@@ -171,14 +163,6 @@ const interval = setInterval(() => {
 </html>
 ''')
 
-
 if __name__ == '__main__':
     port = 5000
-
-    # os.system("pkill ngrok")
-
-    # if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        # public_url = ngrok.connect(port, domain=custom_domain, bind_tls=True).public_url
-        # print(f" * Public URL: {public_url}")
-
     app.run(debug=False, host='0.0.0.0', port=port)
