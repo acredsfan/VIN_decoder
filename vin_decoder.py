@@ -27,7 +27,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
-APPLICATION_ROOT = '/vin-lookup'
+APPLICATION_ROOT = '/VIN_decoder'
 
 # Rate Limiter setup
 limiter = Limiter(
