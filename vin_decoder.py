@@ -128,6 +128,7 @@ with open('templates/index.html', 'w') as f:
 <html lang="en">
 <head>
     <title>VIN Decoder</title>
+    <base href="/vin-lookup/">
 </head>
 <body>
 <form method="POST" enctype="multipart/form-data">
@@ -148,13 +149,13 @@ with open('templates/status.html', 'w') as f:
 <p id="status">Starting...</p>
 <script>
 const interval = setInterval(() => {
-  fetch('status')
+  fetch('/vin-lookup/status')
     .then(res => res.json())
     .then(data => {
       document.getElementById('status').innerText = data.progress;
       if (data.completed) {
         clearInterval(interval);
-        window.location.href = 'download/' + data.file;
+        window.location.href = '/vin-lookup/download/' + data.file;
       }
     });
 }, 3000);
