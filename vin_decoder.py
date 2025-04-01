@@ -155,19 +155,17 @@ with open('templates/status.html', 'w') as f:
 <body>
 <p id="status">Starting...</p>
 <script>
-let downloadTriggered = false;
 const interval = setInterval(() => {
   fetch('{{ root }}/status')
-    .then(response => response.json())
+    .then(res => res.json())
     .then(data => {
       document.getElementById('status').innerText = data.progress;
-      if (data.completed && !downloadTriggered) {
-        downloadTriggered = true;
+      if(data.completed){
         clearInterval(interval);
-        window.location.href = '/download/' + data.file;
+        window.location.href = '{{ root }}/download/' + data.file;
       }
     });
-}, 3000);  // update every 3 seconds
+}, 3000);
 </script>
 </body>
 </html>
