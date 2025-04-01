@@ -128,7 +128,6 @@ with open('templates/index.html', 'w') as f:
 <html lang="en">
 <head>
     <title>VIN Decoder</title>
-    <base href="/vin-lookup/">
 </head>
 <body>
 <form method="POST" enctype="multipart/form-data">
@@ -146,7 +145,6 @@ with open('templates/status.html', 'w') as f:
 <html>
 <head>
     <title>Status</title>
-    <base href="/vin-lookup/">
 </head>
 <body>
 <p id="status">Starting...</p>
