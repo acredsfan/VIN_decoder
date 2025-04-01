@@ -148,13 +148,13 @@ with open('templates/status.html', 'w') as f:
 <p id="status">Starting...</p>
 <script>
 const interval = setInterval(() => {
-  fetch('/status')
+  fetch('status')
     .then(res => res.json())
     .then(data => {
       document.getElementById('status').innerText = data.progress;
-      if(data.completed){
+      if (data.completed) {
         clearInterval(interval);
-        window.location.href = '/download/' + data.file;
+        window.location.href = 'download/' + data.file;
       }
     });
 }, 3000);
