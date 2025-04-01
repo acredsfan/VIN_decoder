@@ -144,7 +144,10 @@ with open('templates/status.html', 'w') as f:
     f.write('''
 <!doctype html>
 <html>
-<head><title>Status</title></head>
+<head>
+    <title>Status</title>
+    <base href="/vin-lookup/">
+</head>
 <body>
 <p id="status">Starting...</p>
 <script>
