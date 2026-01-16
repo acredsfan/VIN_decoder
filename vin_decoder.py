@@ -14,7 +14,9 @@ import re
 # Load environment variables
 dotenv.load_dotenv()
 
-BASE_DIR = '/home/pi/VIN_decoder'
+# Base directory for templates/static/uploads.
+# Raspberry Pi default; optionally override via VIN_DECODER_BASE_DIR environment variable.
+BASE_DIR = os.getenv('VIN_DECODER_BASE_DIR') or '/home/pi/VIN_decoder'
 app = Flask(
     __name__,
     template_folder=os.path.join(BASE_DIR, 'templates'),
@@ -34,6 +36,152 @@ STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": Fals
 
 VIN_REGEX = re.compile(r'^(?!.*[IOQ])[A-HJ-NPR-Z0-9]{17}$', re.IGNORECASE)
 
+# Fleet-focused field set (ICE + EV + key safety/ADAS + operational specs).
+# Keys are the output column names; values are the official vPIC "Variable" names.
+FLEET_FIELD_MAP = {
+    # Core identification
+    "Make": "Make",
+    "Model": "Model",
+    "Model Year": "Model Year",
+    "Vehicle Type": "Vehicle Type",
+    "Body Type": "Body Class",  # legacy output name used by this app
+    "Body Class": "Body Class",
+    "Trim": "Trim",
+    "Trim2": "Trim2",
+    "Series": "Series",
+    "Series2": "Series2",
+    "Manufacturer Name": "Manufacturer Name",
+    "Destination Market": "Destination Market",
+
+    # Manufacturing / plant
+    "Plant Country": "Plant Country",
+    "Plant State": "Plant State",
+    "Plant City": "Plant City",
+    "Plant Company Name": "Plant Company Name",
+
+    # Weight / class / dimensions (fleet operations, compliance, upfit)
+    "Vehicle Class": "Gross Vehicle Weight Rating From",  # legacy output name used by this app
+    "GVWR From": "Gross Vehicle Weight Rating From",
+    "GVWR To": "Gross Vehicle Weight Rating To",
+    "GCWR From": "Gross Combination Weight Rating From",
+    "GCWR To": "Gross Combination Weight Rating To",
+    "Curb Weight (pounds)": "Curb Weight (pounds)",
+    "Wheel Base (inches) From": "Wheel Base (inches) From",
+    "Wheel Base (inches) To": "Wheel Base (inches) To",
+    "Track Width (inches)": "Track Width (inches)",
+
+    # Truck / chassis configuration
+    "Cab Type": "Cab Type",
+    "Bed Type": "Bed Type",
+    "Bed Length (inches)": "Bed Length (inches)",
+    "Doors": "Doors",
+    "Number of Seats": "Number of Seats",
+    "Number of Seat Rows": "Number of Seat Rows",
+    "Number of Wheels": "Number of Wheels",
+    "Wheel Size Front (inches)": "Wheel Size Front (inches)",
+    "Wheel Size Rear (inches)": "Wheel Size Rear (inches)",
+    "Axles": "Axles",
+    "Axle Configuration": "Axle Configuration",
+    "Drive Type": "Drive Type",
+    "Steering Location": "Steering Location",
+    "Brake System Type": "Brake System Type",
+    "Brake System Description": "Brake System Description",
+    "Trailer Body Type": "Trailer Body Type",
+    "Trailer Type Connection": "Trailer Type Connection",
+    "Trailer Length (feet)": "Trailer Length (feet)",
+
+    # Powertrain (ICE/Hybrid/EV)
+    "Fuel Type": "Fuel Type - Primary",  # legacy output name used by this app
+    "Fuel Type - Primary": "Fuel Type - Primary",
+    "Fuel Type - Secondary": "Fuel Type - Secondary",
+    "Electrification Level": "Electrification Level",
+    "Engine Manufacturer": "Engine Manufacturer",
+    "Engine Model": "Engine Model",
+    "Displacement (L)": "Displacement (L)",
+    "Displacement (CC)": "Displacement (CC)",
+    "Displacement (CI)": "Displacement (CI)",
+    "Engine Number of Cylinders": "Engine Number of Cylinders",
+    "Engine Configuration": "Engine Configuration",
+    "Valve Train Design": "Valve Train Design",
+    "Fuel Delivery / Fuel Injection Type": "Fuel Delivery / Fuel Injection Type",
+    "Cooling Type": "Cooling Type",
+    "Engine Stroke Cycles": "Engine Stroke Cycles",
+    "Turbo": "Turbo",
+    "Engine Power (kW)": "Engine Power (kW)",
+    "Engine Brake (hp) From": "Engine Brake (hp) From",
+    "Engine Brake (hp) To": "Engine Brake (hp) To",
+    "Other Engine Info": "Other Engine Info",
+    "Transmission Style": "Transmission Style",
+    "Transmission Speeds": "Transmission Speeds",
+    "Top Speed (MPH)": "Top Speed (MPH)",
+
+    # EV / battery / charging
+    "Battery Type": "Battery Type",
+    "Battery Energy (kWh) From": "Battery Energy (kWh) From",
+    "Battery Energy (kWh) To": "Battery Energy (kWh) To",
+    "Battery Voltage (Volts) From": "Battery Voltage (Volts) From",
+    "Battery Voltage (Volts) To": "Battery Voltage (Volts) To",
+    "Battery Current (Amps) From": "Battery Current (Amps) From",
+    "Battery Current (Amps) To": "Battery Current (Amps) To",
+    "Number of Battery Cells per Module": "Number of Battery Cells per Module",
+    "Number of Battery Modules per Pack": "Number of Battery Modules per Pack",
+    "Number of Battery Packs per Vehicle": "Number of Battery Packs per Vehicle",
+    "EV Drive Unit": "EV Drive Unit",
+    "Charger Level": "Charger Level",
+    "Charger Power (kW)": "Charger Power (kW)",
+    "Other Battery Info": "Other Battery Info",
+
+    # Safety / ADAS (useful for safety programs, policy, insurance; availability varies)
+    "Anti-lock Braking System (ABS)": "Anti-lock Braking System (ABS)",
+    "Electronic Stability Control (ESC)": "Electronic Stability Control (ESC)",
+    "Traction Control": "Traction Control",
+    "Tire Pressure Monitoring System (TPMS) Type": "Tire Pressure Monitoring System (TPMS) Type",
+    "Backup Camera": "Backup Camera",
+    "Parking Assist": "Parking Assist",
+    "Rear Cross Traffic Alert": "Rear Cross Traffic Alert",
+    "Rear Automatic Emergency Braking": "Rear Automatic Emergency Braking",
+    "Adaptive Cruise Control (ACC)": "Adaptive Cruise Control (ACC)",
+    "Forward Collision Warning (FCW)": "Forward Collision Warning (FCW)",
+    "Crash Imminent Braking (CIB)": "Crash Imminent Braking (CIB)",
+    "Dynamic Brake Support (DBS)": "Dynamic Brake Support (DBS)",
+    "Pedestrian Automatic Emergency Braking (PAEB)": "Pedestrian Automatic Emergency Braking (PAEB)",
+    "Lane Departure Warning (LDW)": "Lane Departure Warning (LDW)",
+    "Lane Keeping Assistance (LKA)": "Lane Keeping Assistance (LKA)",
+    "Lane Centering Assistance": "Lane Centering Assistance",
+    "Blind Spot Warning (BSW)": "Blind Spot Warning (BSW)",
+    "Blind Spot Intervention (BSI)": "Blind Spot Intervention (BSI)",
+    "Automatic Crash Notification (ACN) / Advanced Automatic Crash Notification (AACN)": "Automatic Crash Notification (ACN) / Advanced Automatic Crash Notification (AACN)",
+    "Event Data Recorder (EDR)": "Event Data Recorder (EDR)",
+    "Keyless Ignition": "Keyless Ignition",
+    "Daytime Running Light (DRL)": "Daytime Running Light (DRL)",
+    "Headlamp Light Source": "Headlamp Light Source",
+    "Semiautomatic Headlamp Beam Switching": "Semiautomatic Headlamp Beam Switching",
+    "Adaptive Driving Beam (ADB)": "Adaptive Driving Beam (ADB)",
+    "Auto-Reverse System for Windows and Sunroofs": "Auto-Reverse System for Windows and Sunroofs",
+    "Automatic Pedestrian Alerting Sound (for Hybrid and EV only)": "Automatic Pedestrian Alerting Sound (for Hybrid and EV only)",
+    "SAE Automation Level From": "SAE Automation Level From",
+    "SAE Automation Level To": "SAE Automation Level To",
+    "Active Safety System Note": "Active Safety System Note",
+
+    # Passive safety (sometimes useful for safety/compliance reporting)
+    "Front Air Bag Locations": "Front Air Bag Locations",
+    "Side Air Bag Locations": "Side Air Bag Locations",
+    "Curtain Air Bag Locations": "Curtain Air Bag Locations",
+    "Knee Air Bag Locations": "Knee Air Bag Locations",
+    "Seat Cushion Air Bag Locations": "Seat Cushion Air Bag Locations",
+    "Seat Belt Type": "Seat Belt Type",
+    "Pretensioner": "Pretensioner",
+
+    # Decode quality / debugging
+    "Error Code": "Error Code",
+    "Error Text": "Error Text",
+    "Additional Error Text": "Additional Error Text",
+    "Suggested VIN": "Suggested VIN",
+    "Possible Values": "Possible Values",
+    "Vehicle Descriptor": "Vehicle Descriptor",
+    "Note": "Note",
+}
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -41,19 +189,25 @@ def get_vin_data(vin):
     response = requests.get(f"{NHTSA_API_BASE}{vin}?format=json")
     if response.status_code == 200:
         results = response.json().get('Results', [])
-        vin_data = {
-            "Make": next((item['Value'] for item in results if item['Variable'] == 'Make'), "Not Found"),
-            "Model": next((item['Value'] for item in results if item['Variable'] == 'Model'), "Not Found"),
-            "Model Year": next((item['Value'] for item in results if item['Variable'] == 'Model Year'), "Not Found"),
-            "Trim": next((item['Value'] for item in results if item['Variable'] == 'Trim'), "Not Found"),
-            "Body Type": next((item['Value'] for item in results if item['Variable'] == 'Body Class'), "Not Found"),
-            "Vehicle Type": next((item['Value'] for item in results if item['Variable'] == 'Vehicle Type'), "Not Found"),
-            "Vehicle Class": next((item['Value'] for item in results if item['Variable'] == 'Gross Vehicle Weight Rating From'), "Not Found"),
-            "Fuel Type": next((item['Value'] for item in results if item['Variable'] == 'Fuel Type - Primary'), "Not Found"),
-        }
+        decoded_lookup = {}
+        for item in results:
+            var_name = item.get('Variable')
+            if not var_name:
+                continue
+            decoded_lookup[var_name] = item.get('Value')
+
+        def pick(var_name):
+            val = decoded_lookup.get(var_name)
+            if val is None:
+                return "Not Found"
+            if isinstance(val, str) and val.strip() == "":
+                return "Not Found"
+            return val
+
+        vin_data = {out_key: pick(var_name) for out_key, var_name in FLEET_FIELD_MAP.items()}
         return vin_data
     else:
-        return {key: "Invalid VIN" for key in ["Make", "Model", "Model Year", "Body Type", "Vehicle Class", "Fuel Type"]}
+        return {key: "Invalid VIN" for key in FLEET_FIELD_MAP.keys()}
 
 def find_vin_column(df):
     for column in df.columns:
@@ -101,7 +255,7 @@ def index():
     STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": False, "file": ""}
     if request.method == 'POST':
         file = request.files.get('file')
-        if file and allowed_file(file.filename):
+        if file and file.filename and allowed_file(file.filename):
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
             file.save(filepath)
             df = pd.read_excel(filepath) if filepath.endswith(('xlsx', 'xls')) else pd.read_csv(filepath)
