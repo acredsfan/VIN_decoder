@@ -1,7 +1,7 @@
 import subprocess
 import sys
 import os
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 
 MINIMUM_PYTHON = (3, 8)
@@ -14,6 +14,32 @@ REQUIRED_PACKAGES = [
     "openpyxl",
     "python-dotenv",
 ]
+
+
+def get_default_venv_dir(base_dir: str) -> str:
+    """Choose a sensible default venv path for the current platform.
+
+    Prefer existing environments first so repeated runs don't create churn.
+    On Linux/Raspberry Pi, default to `venv` to match common systemd service
+    examples. On Windows, default to `.venv` to match local editor tooling.
+    """
+    candidates = [
+        os.path.join(base_dir, "venv"),
+        os.path.join(base_dir, ".venv"),
+    ]
+
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+
+    return os.path.join(base_dir, "venv" if os.name != 'nt' else ".venv")
+
+
+def get_required_packages() -> List[str]:
+    packages = list(REQUIRED_PACKAGES)
+    if os.name != 'nt':
+        packages.append("gunicorn")
+    return packages
 
 
 def ensure_supported_python() -> None:
@@ -45,7 +71,7 @@ def setup_virtualenv(venv_dir: Optional[str] = None) -> str:
     Target environment: Raspberry Pi OS (Bookworm).
     """
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_dir = venv_dir or os.path.join(base_dir, ".venv")
+    venv_dir = venv_dir or get_default_venv_dir(base_dir)
 
     # Create venv if missing
     if not os.path.isdir(venv_dir):
@@ -64,7 +90,7 @@ def install_packages(packages: Iterable[str], python_exec: str) -> None:
 def main() -> None:
     ensure_supported_python()
     python_executable = setup_virtualenv()
-    install_packages(REQUIRED_PACKAGES, python_executable)
+    install_packages(get_required_packages(), python_executable)
 
 
 if __name__ == '__main__':

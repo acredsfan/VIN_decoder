@@ -1,0 +1,14 @@
+[Unit]
+Description=VIN Decoder Flask App via Gunicorn
+After=network.target
+
+[Service]
+User=pi
+Group=www-data
+WorkingDirectory=/home/pi/VIN_decoder
+Environment="VIN_DECODER_BASE_DIR=/home/pi/VIN_decoder"
+ExecStart=/home/pi/VIN_decoder/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 vin_decoder:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
