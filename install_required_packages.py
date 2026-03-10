@@ -20,19 +20,19 @@ def get_default_venv_dir(base_dir: str) -> str:
     """Choose a sensible default venv path for the current platform.
 
     Prefer existing environments first so repeated runs don't create churn.
-    On Linux/Raspberry Pi, default to `venv` to match common systemd service
-    examples. On Windows, default to `.venv` to match local editor tooling.
+    Default to `.venv`, which matches the current project layout and VS Code's
+    common local environment convention on both Windows and Raspberry Pi.
     """
     candidates = [
-        os.path.join(base_dir, "venv"),
         os.path.join(base_dir, ".venv"),
+        os.path.join(base_dir, "venv"),
     ]
 
     for candidate in candidates:
         if os.path.isdir(candidate):
             return candidate
 
-    return os.path.join(base_dir, "venv" if os.name != 'nt' else ".venv")
+    return os.path.join(base_dir, ".venv")
 
 
 def get_required_packages() -> List[str]:
