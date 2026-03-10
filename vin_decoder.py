@@ -15,21 +15,27 @@ import re
 dotenv.load_dotenv()
 
 # Base directory for templates/static/uploads.
-# Raspberry Pi default; optionally override via VIN_DECODER_BASE_DIR environment variable.
-BASE_DIR = os.getenv('VIN_DECODER_BASE_DIR') or '/home/pi/VIN_decoder'
+# Default to the directory containing this script so startup is independent
+# of the current working directory (important for Raspberry Pi/systemd use).
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.getenv('VIN_DECODER_BASE_DIR') or SCRIPT_DIR
+TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads')
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 app = Flask(
     __name__,
-    template_folder=os.path.join(BASE_DIR, 'templates'),
-    static_folder=os.path.join(BASE_DIR, 'static')
+    template_folder=TEMPLATE_DIR,
+    static_folder=STATIC_DIR
 )
-app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
+app.config['UPLOAD_FOLDER'] = UPLOAD_DIR
 app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
 app.secret_key = os.urandom(24)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
 limiter = Limiter(get_remote_address, app=app, default_limits=["500 per minute"])
-
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 NHTSA_API_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/'
 STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": False, "file": ""}
@@ -275,51 +281,6 @@ def status():
 @app.route('/download/<filename>')
 def download(filename):
     return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
-
-with open('templates/index.html', 'w') as f:
-    f.write('''
-<!doctype html>
-<html lang="en">
-<head>
-    <title>VIN Decoder</title>
-</head>
-<body>
-<form method="POST" enctype="multipart/form-data">
-    <input type="file" name="file" required>
-    <button type="submit">Decode VINs</button>
-</form>
-{% if error %}<p>{{ error }}</p>{% endif %}
-</body>
-</html>
-''')
-
-with open('templates/status.html', 'w') as f:
-    f.write('''
-<!doctype html>
-<html>
-<head>
-    <title>Status</title>
-</head>
-<body>
-<p id="status">Starting...</p>
-<script>
-const interval = setInterval(() => {
-  // Using a relative URL: since the current URL is /vin-lookup/ this becomes /vin-lookup/status
-  fetch('status')
-    .then(res => res.json())
-    .then(data => {
-      document.getElementById('status').innerText = data.progress;
-      if (data.completed) {
-        clearInterval(interval);
-        // Relative URL: becomes /vin-lookup/download/<filename>
-        window.location.href = 'download/' + data.file;
-      }
-    });
-}, 3000);
-</script>
-</body>
-</html>
-''')
 
 if __name__ == '__main__':
     port = 5000
