@@ -2,13 +2,127 @@
 <!doctype html>
 <html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VIN Decoder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<form method="POST" enctype="multipart/form-data">
-    <input type="file" name="file" required>
-    <button type="submit">Decode VINs</button>
-</form>
-{% if error %}<p>{{error}}</p>{% endif %}
+    <main class="page-shell">
+        <div class="navbar">
+            <div class="brand">
+                <span class="brand-badge">VIN</span>
+                <span>Fleet VIN Decoder</span>
+            </div>
+            <a class="nav-pill" href="{{ url_for('download_template') }}" download>Download sample template</a>
+        </div>
+
+        <section class="hero">
+            <article class="card hero-copy">
+                <span class="eyebrow">Bulk decode • Free SQLite job tracking</span>
+                <h1>Upload a VIN list and get a tracked decode job with a downloadable workbook.</h1>
+                <p>
+                    This version keeps recent job history, uses job IDs, caches repeated VIN lookups,
+                    and stores progress in SQLite so status survives beyond a single in-memory request cycle.
+                </p>
+
+                <div class="feature-grid">
+                    <div class="feature-tile">
+                        <strong>Tracked jobs</strong>
+                        <span>Each upload gets its own job ID and dedicated status page.</span>
+                    </div>
+                    <div class="feature-tile">
+                        <strong>Free persistence</strong>
+                        <span>SQLite stores job state and VIN cache without extra infrastructure cost.</span>
+                    </div>
+                    <div class="feature-tile">
+                        <strong>Cleaner operations</strong>
+                        <span>Old uploads and outputs are automatically removed after the retention window.</span>
+                    </div>
+                </div>
+            </article>
+
+            <aside class="card upload-card">
+                <h2>Start a decode job</h2>
+                <p class="supporting-copy">Accepted file types: CSV, XLS, and XLSX. One column must contain valid 17-character VIN values.</p>
+
+                {% if error %}
+                <div class="alert alert-error">{{ error }}</div>
+                {% endif %}
+
+                <form class="upload-form" method="POST" enctype="multipart/form-data">
+                    <label class="file-dropzone" id="file-dropzone">
+                        <input id="file-input" type="file" name="file" accept=".csv,.xls,.xlsx" required>
+                        <div class="file-dropzone-content">
+                            <strong>Choose or drop your file here</strong>
+                            <span class="helper-text">Your VIN column can be named anything, as long as it contains valid 17-character VINs.</span>
+                            <span class="file-chip" id="selected-file">No file selected yet</span>
+                        </div>
+                    </label>
+
+                    <div class="actions-row">
+                        <button class="button" type="submit">Decode VINs</button>
+                        <a class="button-secondary" href="{{ url_for('download_template') }}" download>
+                            Download {{ template_filename }}
+                        </a>
+                    </div>
+                </form>
+
+                <div class="info-panel">
+                    <strong>Quick tips</strong>
+                    <ul>
+                        <li>The sample template includes example VIN rows so you can test the workflow immediately.</li>
+                        <li>Uploads and outputs are retained temporarily for reliability/debugging, then cleaned up automatically.</li>
+                        <li>Repeat VINs benefit from cache hits, which reduces unnecessary upstream lookups.</li>
+                    </ul>
+                </div>
+            </aside>
+        </section>
+
+        <section class="card recent-jobs-card">
+            <div class="section-header">
+                <div>
+                    <h2 class="section-title">Recent jobs</h2>
+                    <p class="supporting-copy">Your latest uploads and their current state.</p>
+                </div>
+            </div>
+
+            {% if recent_jobs %}
+            <div class="job-list">
+                {% for job in recent_jobs %}
+                <a class="job-row" href="{{ url_for('job_status_page', job_id=job.job_id) }}">
+                    <div class="job-meta">
+                        <strong>{{ job.source_filename }}</strong>
+                        <span>Job {{ job.job_id[:8] }} • {{ job.progress }}</span>
+                    </div>
+                    <span class="job-status job-status-{{ job.status_class }}">{{ job.status_label }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="small-note">No jobs yet. Your next upload will show up here.</p>
+            {% endif %}
+        </section>
+
+        <p class="footer-note">Need the right format first? Download the template, replace the example rows, then upload it here.</p>
+    </main>
+
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const selectedFile = document.getElementById('selected-file');
+        const dropzone = document.getElementById('file-dropzone');
+
+        fileInput.addEventListener('change', () => {
+            selectedFile.textContent = fileInput.files.length ? fileInput.files[0].name : 'No file selected yet';
+        });
+
+        ['dragenter', 'dragover'].forEach((eventName) => {
+            dropzone.addEventListener(eventName, () => dropzone.classList.add('is-dragging'));
+        });
+
+        ['dragleave', 'drop'].forEach((eventName) => {
+            dropzone.addEventListener(eventName, () => dropzone.classList.remove('is-dragging'));
+        });
+    </script>
 </body>
 </html>

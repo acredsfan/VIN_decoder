@@ -1,10 +1,12 @@
 /.idea
 /.vscode
-/uploads
-/templates
-/.venv
+/.venv*
+/venv*
 /__pycache__
-/*.pyc
+*.pyc
 /.DS_Store
 /.mypy_cache
 .env
+/uploads
+/data
+/logs

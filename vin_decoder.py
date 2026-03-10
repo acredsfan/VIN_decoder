@@ -1,56 +1,52 @@
+import json
+import logging
 import os
+import re
+import sqlite3
 import threading
 import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 import dotenv
-from flask import Flask, request, render_template, send_file, jsonify
-import requests
 import pandas as pd
-from werkzeug.utils import secure_filename
+import requests
+from flask import (
+    Flask,
+    abort,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    send_from_directory,
+    url_for,
+)
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from werkzeug.middleware.proxy_fix import ProxyFix
-import re
+from werkzeug.utils import secure_filename
 
-# Load environment variables
-dotenv.load_dotenv()
+from config import get_config_class
 
-# Base directory for templates/static/uploads.
-# Default to the directory containing this script so startup is independent
-# of the current working directory (important for Raspberry Pi/systemd use).
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.getenv('VIN_DECODER_BASE_DIR') or SCRIPT_DIR
-TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
-STATIC_DIR = os.path.join(BASE_DIR, 'static')
-UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads')
+SCRIPT_DIR = Path(__file__).resolve().parent
+dotenv.load_dotenv(SCRIPT_DIR / ".env")
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+LOGGER = logging.getLogger("vin_decoder")
+CLEANUP_LOCK = threading.Lock()
+LAST_CLEANUP_AT = 0.0
 
-app = Flask(
-    __name__,
-    template_folder=TEMPLATE_DIR,
-    static_folder=STATIC_DIR
-)
-app.config['UPLOAD_FOLDER'] = UPLOAD_DIR
-app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls', 'csv'}
-app.secret_key = os.urandom(24)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+VIN_REGEX = re.compile(r"^(?!.*[IOQ])[A-HJ-NPR-Z0-9]{17}$", re.IGNORECASE)
 
-limiter = Limiter(get_remote_address, app=app, default_limits=["500 per minute"])
-
-NHTSA_API_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/'
-STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": False, "file": ""}
-
-VIN_REGEX = re.compile(r'^(?!.*[IOQ])[A-HJ-NPR-Z0-9]{17}$', re.IGNORECASE)
-
-# Fleet-focused field set (ICE + EV + key safety/ADAS + operational specs).
-# Keys are the output column names; values are the official vPIC "Variable" names.
 FLEET_FIELD_MAP = {
-    # Core identification
     "Make": "Make",
     "Model": "Model",
     "Model Year": "Model Year",
     "Vehicle Type": "Vehicle Type",
-    "Body Type": "Body Class",  # legacy output name used by this app
+    "Body Type": "Body Class",
     "Body Class": "Body Class",
     "Trim": "Trim",
     "Trim2": "Trim2",
@@ -58,15 +54,11 @@ FLEET_FIELD_MAP = {
     "Series2": "Series2",
     "Manufacturer Name": "Manufacturer Name",
     "Destination Market": "Destination Market",
-
-    # Manufacturing / plant
     "Plant Country": "Plant Country",
     "Plant State": "Plant State",
     "Plant City": "Plant City",
     "Plant Company Name": "Plant Company Name",
-
-    # Weight / class / dimensions (fleet operations, compliance, upfit)
-    "Vehicle Class": "Gross Vehicle Weight Rating From",  # legacy output name used by this app
+    "Vehicle Class": "Gross Vehicle Weight Rating From",
     "GVWR From": "Gross Vehicle Weight Rating From",
     "GVWR To": "Gross Vehicle Weight Rating To",
     "GCWR From": "Gross Combination Weight Rating From",
@@ -75,8 +67,6 @@ FLEET_FIELD_MAP = {
     "Wheel Base (inches) From": "Wheel Base (inches) From",
     "Wheel Base (inches) To": "Wheel Base (inches) To",
     "Track Width (inches)": "Track Width (inches)",
-
-    # Truck / chassis configuration
     "Cab Type": "Cab Type",
     "Bed Type": "Bed Type",
     "Bed Length (inches)": "Bed Length (inches)",
@@ -95,9 +85,7 @@ FLEET_FIELD_MAP = {
     "Trailer Body Type": "Trailer Body Type",
     "Trailer Type Connection": "Trailer Type Connection",
     "Trailer Length (feet)": "Trailer Length (feet)",
-
-    # Powertrain (ICE/Hybrid/EV)
-    "Fuel Type": "Fuel Type - Primary",  # legacy output name used by this app
+    "Fuel Type": "Fuel Type - Primary",
     "Fuel Type - Primary": "Fuel Type - Primary",
     "Fuel Type - Secondary": "Fuel Type - Secondary",
     "Electrification Level": "Electrification Level",
@@ -120,8 +108,6 @@ FLEET_FIELD_MAP = {
     "Transmission Style": "Transmission Style",
     "Transmission Speeds": "Transmission Speeds",
     "Top Speed (MPH)": "Top Speed (MPH)",
-
-    # EV / battery / charging
     "Battery Type": "Battery Type",
     "Battery Energy (kWh) From": "Battery Energy (kWh) From",
     "Battery Energy (kWh) To": "Battery Energy (kWh) To",
@@ -136,8 +122,6 @@ FLEET_FIELD_MAP = {
     "Charger Level": "Charger Level",
     "Charger Power (kW)": "Charger Power (kW)",
     "Other Battery Info": "Other Battery Info",
-
-    # Safety / ADAS (useful for safety programs, policy, insurance; availability varies)
     "Anti-lock Braking System (ABS)": "Anti-lock Braking System (ABS)",
     "Electronic Stability Control (ESC)": "Electronic Stability Control (ESC)",
     "Traction Control": "Traction Control",
@@ -168,8 +152,6 @@ FLEET_FIELD_MAP = {
     "SAE Automation Level From": "SAE Automation Level From",
     "SAE Automation Level To": "SAE Automation Level To",
     "Active Safety System Note": "Active Safety System Note",
-
-    # Passive safety (sometimes useful for safety/compliance reporting)
     "Front Air Bag Locations": "Front Air Bag Locations",
     "Side Air Bag Locations": "Side Air Bag Locations",
     "Curtain Air Bag Locations": "Curtain Air Bag Locations",
@@ -177,8 +159,6 @@ FLEET_FIELD_MAP = {
     "Seat Cushion Air Bag Locations": "Seat Cushion Air Bag Locations",
     "Seat Belt Type": "Seat Belt Type",
     "Pretensioner": "Pretensioner",
-
-    # Decode quality / debugging
     "Error Code": "Error Code",
     "Error Text": "Error Text",
     "Additional Error Text": "Additional Error Text",
@@ -188,100 +168,547 @@ FLEET_FIELD_MAP = {
     "Note": "Note",
 }
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-def get_vin_data(vin):
-    response = requests.get(f"{NHTSA_API_BASE}{vin}?format=json")
-    if response.status_code == 200:
-        results = response.json().get('Results', [])
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def utc_now_iso() -> str:
+    return utc_now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_datetime(value: str):
+    if not value:
+        return None
+    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+
+
+def build_requests_session() -> requests.Session:
+    session = requests.Session()
+    adapter = HTTPAdapter(
+        max_retries=Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def ensure_directories(app: Flask) -> None:
+    for key in ("BASE_DIR", "UPLOAD_DIR", "DATA_DIR", "LOG_DIR"):
+        Path(app.config[key]).mkdir(parents=True, exist_ok=True)
+
+
+def setup_logging(app: Flask) -> None:
+    LOGGER.setLevel(getattr(logging, app.config["LOG_LEVEL"], logging.INFO))
+    if LOGGER.handlers:
+        return
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.propagate = False
+
+
+def log_event(event: str, **fields) -> None:
+    parts = [f'event="{event}"']
+    for key, value in fields.items():
+        if value is None:
+            continue
+        parts.append(f"{key}={json.dumps(value, default=str)}")
+    LOGGER.info(" ".join(parts))
+
+
+def get_db_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(current_app.config["DB_PATH"], timeout=10)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db(app: Flask) -> None:
+    with app.app_context():
+        conn = sqlite3.connect(app.config["DB_PATH"], timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id TEXT PRIMARY KEY,
+                source_filename TEXT,
+                stored_upload_name TEXT,
+                status TEXT NOT NULL,
+                progress TEXT NOT NULL,
+                current INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0,
+                completed INTEGER NOT NULL DEFAULT 0,
+                error INTEGER NOT NULL DEFAULT 0,
+                output_file TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vin_cache (
+                vin TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+
+def default_status_payload():
+    return {
+        "job_id": None,
+        "status": "idle",
+        "progress": "Not started",
+        "current": 0,
+        "total": 0,
+        "completed": False,
+        "file": "",
+        "error": False,
+        "download_url": None,
+        "source_filename": None,
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+def serialize_job(row):
+    if not row:
+        return default_status_payload()
+
+    output_file = row["output_file"] or ""
+    return {
+        "job_id": row["job_id"],
+        "status": row["status"],
+        "progress": row["progress"],
+        "current": row["current"],
+        "total": row["total"],
+        "completed": bool(row["completed"]),
+        "file": output_file,
+        "error": bool(row["error"]),
+        "download_url": url_for("download_job", job_id=row["job_id"]) if output_file else None,
+        "source_filename": row["source_filename"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_job_record(job_id: str, source_filename: str, stored_upload_name: str, total: int) -> None:
+    now = utc_now_iso()
+    conn = get_db_connection()
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            job_id, source_filename, stored_upload_name, status, progress,
+            current, total, completed, error, output_file, created_at, updated_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            job_id,
+            source_filename,
+            stored_upload_name,
+            "queued",
+            "Queued",
+            0,
+            total,
+            0,
+            0,
+            None,
+            now,
+            now,
+            None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_job_record(job_id: str, **fields) -> None:
+    if not fields:
+        return
+
+    fields["updated_at"] = utc_now_iso()
+    assignments = ", ".join(f"{key} = ?" for key in fields.keys())
+    values = [int(value) if isinstance(value, bool) else value for value in fields.values()]
+    values.append(job_id)
+
+    conn = get_db_connection()
+    conn.execute(f"UPDATE jobs SET {assignments} WHERE job_id = ?", values)
+    conn.commit()
+    conn.close()
+
+
+def get_job_record(job_id: str):
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def get_latest_job_record():
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
+    conn.close()
+    return row
+
+
+def list_recent_jobs(limit: int):
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["status_label"] = item["status"].replace("_", " ").title()
+        item["status_class"] = item["status"].replace("_", "-")
+        items.append(item)
+    return items
+
+
+def get_cached_vin_data(vin: str):
+    cutoff = utc_now() - timedelta(hours=current_app.config["CACHE_TTL_HOURS"])
+    conn = get_db_connection()
+    row = conn.execute("SELECT payload, updated_at FROM vin_cache WHERE vin = ?", (vin,)).fetchone()
+
+    if not row:
+        conn.close()
+        return None
+
+    updated_at = parse_datetime(row["updated_at"])
+    if updated_at and updated_at < cutoff:
+        conn.execute("DELETE FROM vin_cache WHERE vin = ?", (vin,))
+        conn.commit()
+        conn.close()
+        return None
+
+    payload = json.loads(row["payload"])
+    conn.close()
+    return payload
+
+
+def cache_vin_data(vin: str, payload) -> None:
+    conn = get_db_connection()
+    conn.execute(
+        """
+        INSERT INTO vin_cache (vin, payload, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(vin) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (vin, json.dumps(payload), utc_now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in current_app.config["ALLOWED_EXTENSIONS"]
+
+
+def get_vin_data(vin: str):
+    cached = get_cached_vin_data(vin)
+    if cached:
+        return cached
+
+    try:
+        response = current_app.extensions["vin_decoder_http_session"].get(
+            f"{current_app.config['NHTSA_API_BASE']}{vin}?format=json",
+            timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
+        )
+        response.raise_for_status()
+        results = response.json().get("Results", [])
         decoded_lookup = {}
         for item in results:
-            var_name = item.get('Variable')
-            if not var_name:
-                continue
-            decoded_lookup[var_name] = item.get('Value')
+            variable = item.get("Variable")
+            if variable:
+                decoded_lookup[variable] = item.get("Value")
 
-        def pick(var_name):
-            val = decoded_lookup.get(var_name)
-            if val is None:
+        def pick(variable_name):
+            value = decoded_lookup.get(variable_name)
+            if value is None:
                 return "Not Found"
-            if isinstance(val, str) and val.strip() == "":
+            if isinstance(value, str) and not value.strip():
                 return "Not Found"
-            return val
+            return value
 
-        vin_data = {out_key: pick(var_name) for out_key, var_name in FLEET_FIELD_MAP.items()}
-        return vin_data
-    else:
-        return {key: "Invalid VIN" for key in FLEET_FIELD_MAP.keys()}
+        payload = {out_key: pick(var_name) for out_key, var_name in FLEET_FIELD_MAP.items()}
+        cache_vin_data(vin, payload)
+        return payload
+    except (requests.RequestException, ValueError):
+        return {key: "Lookup Error" for key in FLEET_FIELD_MAP.keys()}
 
-def find_vin_column(df):
+
+def find_vin_column(df: pd.DataFrame):
     for column in df.columns:
         if df[column].astype(str).str.match(VIN_REGEX).any():
             return column
     return None
 
-def find_first_vin_row(df, vin):
-    for index, row in df.iterrows():
-        if row[vin] and VIN_REGEX.match(row[vin]):
-            return index
-    return 0
 
 def get_mpg(make, model, year):
-    # (unchanged, for brevity)
     return {"MPG City": "No Data", "MPG Highway": "No Data", "MPG Combined": "No Data"}
 
-def process_vins_in_background(vin_series, batch_size=100):
-    global STATUS
-    vin_details_list = []
-    STATUS.update({"total": len(vin_series), "completed": False})
-    vin_count = 0
 
-    for start in range(0, len(vin_series), batch_size):
-        batch = vin_series[start:start + batch_size]
-        for vin in batch:
-            STATUS['current'] = vin_count
-            STATUS['progress'] = f"Processing VIN {vin_count+1}/{STATUS['total']}"
-            vin_data = get_vin_data(vin)
-            mpg_data = get_mpg(vin_data["Make"], vin_data["Model"], vin_data["Model Year"])
-            vin_data.update(mpg_data)
-            vin_data['VIN'] = vin
-            vin_details_list.append(vin_data)
-            vin_count += 1
+def run_cleanup_if_due(force: bool = False) -> None:
+    global LAST_CLEANUP_AT
 
-    results_df = pd.DataFrame(vin_details_list).fillna('Not Found')
-    results_filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"decoded_{uuid.uuid4().hex}.xlsx")
-    results_df.to_excel(results_filepath, index=False)
-    STATUS.update({"completed": True, "progress": "Completed", "file": os.path.basename(results_filepath)})
+    with CLEANUP_LOCK:
+        now = datetime.now().timestamp()
+        if not force and now - LAST_CLEANUP_AT < 300:
+            return
+        LAST_CLEANUP_AT = now
 
-@app.route('/', methods=['GET', 'POST'])
-@limiter.limit("500 per minute")
-def index():
-    global STATUS
-    STATUS = {"progress": "Not started", "current": 0, "total": 0, "completed": False, "file": ""}
-    if request.method == 'POST':
-        file = request.files.get('file')
-        if file and file.filename and allowed_file(file.filename):
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
-            file.save(filepath)
-            df = pd.read_excel(filepath) if filepath.endswith(('xlsx', 'xls')) else pd.read_csv(filepath)
+    with current_app.app_context():
+        job_cutoff = utc_now() - timedelta(hours=current_app.config["CLEANUP_TTL_HOURS"])
+        cache_cutoff = utc_now() - timedelta(hours=current_app.config["CACHE_TTL_HOURS"])
+        cutoff_iso = job_cutoff.strftime("%Y-%m-%d %H:%M:%S")
+        cache_cutoff_iso = cache_cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+        conn = get_db_connection()
+        stale_jobs = conn.execute(
+            """
+            SELECT job_id, stored_upload_name, output_file
+            FROM jobs
+            WHERE updated_at < ?
+              AND (completed = 1 OR error = 1)
+            """,
+            (cutoff_iso,),
+        ).fetchall()
+
+        for row in stale_jobs:
+            for file_name in (row["stored_upload_name"], row["output_file"]):
+                if file_name:
+                    path = Path(current_app.config["UPLOAD_DIR"]) / file_name
+                    path.unlink(missing_ok=True)
+
+        if stale_jobs:
+            conn.executemany("DELETE FROM jobs WHERE job_id = ?", [(row["job_id"],) for row in stale_jobs])
+
+        conn.execute("DELETE FROM vin_cache WHERE updated_at < ?", (cache_cutoff_iso,))
+        conn.commit()
+        conn.close()
+
+        if stale_jobs:
+            log_event("cleanup.completed", removed_jobs=len(stale_jobs))
+
+
+def process_vins_in_background(app: Flask, job_id: str, vin_series, batch_size: int = 100) -> None:
+    with app.app_context():
+        try:
+            update_job_record(
+                job_id,
+                status="processing",
+                progress="Starting decode...",
+                current=0,
+                total=len(vin_series),
+                completed=False,
+                error=False,
+            )
+
+            vin_details_list = []
+            total = len(vin_series)
+
+            for index, vin in enumerate(vin_series, start=1):
+                update_job_record(
+                    job_id,
+                    progress=f"Processing VIN {index}/{total}",
+                    current=index - 1,
+                    total=total,
+                )
+                vin_data = get_vin_data(vin)
+                mpg_data = get_mpg(vin_data["Make"], vin_data["Model"], vin_data["Model Year"])
+                vin_data.update(mpg_data)
+                vin_data["VIN"] = vin
+                vin_details_list.append(vin_data)
+
+            results_df = pd.DataFrame(vin_details_list).fillna("Not Found")
+            output_file = f"decoded_{job_id}.xlsx"
+            result_path = Path(current_app.config["UPLOAD_DIR"]) / output_file
+            results_df.to_excel(result_path, index=False)
+
+            update_job_record(
+                job_id,
+                status="completed",
+                progress="Completed",
+                current=total,
+                total=total,
+                completed=True,
+                error=False,
+                output_file=output_file,
+                completed_at=utc_now_iso(),
+            )
+            log_event("job.completed", job_id=job_id, total=total, output_file=output_file)
+        except Exception as exc:
+            LOGGER.exception("job failed", exc_info=exc)
+            update_job_record(
+                job_id,
+                status="failed",
+                progress="Processing failed. Please try again.",
+                completed=True,
+                error=True,
+                completed_at=utc_now_iso(),
+            )
+            log_event("job.failed", job_id=job_id, error=str(exc))
+
+
+def render_index(error=None):
+    return render_template(
+        "index.html",
+        error=error,
+        template_filename=Path(current_app.config["TEMPLATE_DOWNLOAD_FILE"]).name,
+        recent_jobs=list_recent_jobs(current_app.config["MAX_RECENT_JOBS"]),
+    )
+
+
+def create_app(config_class=None, overrides=None):
+    config_class = config_class or get_config_class()
+
+    app = Flask(
+        __name__,
+        template_folder=str(config_class.TEMPLATE_DIR),
+        static_folder=str(config_class.STATIC_DIR),
+    )
+    app.config.from_object(config_class)
+
+    if overrides:
+        app.config.update(overrides)
+
+    app.secret_key = os.urandom(24)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+    app.config["ALLOWED_EXTENSIONS"] = {"xlsx", "xls", "csv"}
+    app.config["NHTSA_API_BASE"] = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/"
+    app.config["MAX_CONTENT_LENGTH"] = app.config["MAX_CONTENT_LENGTH"]
+
+    ensure_directories(app)
+    setup_logging(app)
+    init_db(app)
+    app.extensions["vin_decoder_http_session"] = build_requests_session()
+
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=[app.config["DEFAULT_RATE_LIMIT"]],
+        storage_uri=app.config["RATE_LIMIT_STORAGE_URI"],
+    )
+
+    @app.route("/", methods=["GET", "POST"])
+    @limiter.limit(app.config["DEFAULT_RATE_LIMIT"])
+    def index():
+        run_cleanup_if_due()
+
+        if request.method == "POST":
+            uploaded_file = request.files.get("file")
+            if not uploaded_file or not uploaded_file.filename:
+                return render_index(error="Please choose a CSV or Excel file before submitting.")
+
+            if not allowed_file(uploaded_file.filename):
+                return render_index(error="Unsupported file type. Please upload a CSV, XLS, or XLSX file.")
+
+            job_id = uuid.uuid4().hex
+            original_name = secure_filename(uploaded_file.filename)
+            stored_upload_name = f"source_{job_id}_{original_name}"
+            upload_path = Path(app.config["UPLOAD_DIR"]) / stored_upload_name
+            uploaded_file.save(upload_path)
+
+            try:
+                if upload_path.suffix.lower() in (".xlsx", ".xls"):
+                    df = pd.read_excel(upload_path)
+                else:
+                    df = pd.read_csv(upload_path)
+            except Exception:
+                upload_path.unlink(missing_ok=True)
+                log_event("upload.read_failed", filename=original_name)
+                return render_index(error="We couldn't read that file. Please verify the file isn't corrupted and try again.")
+
             vin_column = find_vin_column(df)
-            if vin_column:
-                vin_series = df[vin_column].dropna().astype(str).str.upper().unique()
-                threading.Thread(target=process_vins_in_background, args=(vin_series,)).start()
-                return render_template('status.html')
-            else:
-                return render_template('index.html', error="No VIN column found.")
-    return render_template('index.html')
+            if not vin_column:
+                upload_path.unlink(missing_ok=True)
+                return render_index(error="No VIN column found. Make sure one column contains 17-character VIN values.")
 
-@app.route('/status')
-def status():
-    return jsonify(STATUS)
+            vin_series = df[vin_column].dropna().astype(str).str.upper().unique()
+            if len(vin_series) == 0:
+                upload_path.unlink(missing_ok=True)
+                return render_index(error="No valid VIN values were found in the uploaded file.")
 
-@app.route('/download/<filename>')
-def download(filename):
-    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
+            create_job_record(job_id, original_name, stored_upload_name, len(vin_series))
+            log_event("job.created", job_id=job_id, source_filename=original_name, total=len(vin_series))
 
-if __name__ == '__main__':
-    port = 5000
-    app.run(debug=False, host='0.0.0.0', port=port)
+            thread = threading.Thread(
+                target=process_vins_in_background,
+                args=(app, job_id, vin_series),
+                daemon=True,
+            )
+            thread.start()
+            return redirect(url_for("job_status_page", job_id=job_id))
+
+        return render_index()
+
+    @app.route("/jobs/<job_id>")
+    def job_status_page(job_id: str):
+        row = get_job_record(job_id)
+        if not row:
+            abort(404)
+        return render_template(
+            "status.html",
+            job_id=job_id,
+            poll_interval_ms=app.config["JOB_POLL_INTERVAL_MS"],
+        )
+
+    @app.route("/status")
+    def status():
+        return jsonify(serialize_job(get_latest_job_record()))
+
+    @app.route("/status/<job_id>")
+    def status_for_job(job_id: str):
+        row = get_job_record(job_id)
+        if not row:
+            payload = default_status_payload()
+            payload.update({"error": True, "progress": "Job not found."})
+            return jsonify(payload), 404
+        return jsonify(serialize_job(row))
+
+    @app.route("/download/<job_id>")
+    def download_job(job_id: str):
+        row = get_job_record(job_id)
+        if not row or not row["output_file"]:
+            abort(404)
+
+        return send_from_directory(
+            app.config["UPLOAD_DIR"],
+            row["output_file"],
+            as_attachment=True,
+            download_name=f"decoded_{job_id}.xlsx",
+        )
+
+    @app.route("/download-template")
+    def download_template():
+        return send_file(
+            app.config["TEMPLATE_DOWNLOAD_FILE"],
+            as_attachment=True,
+            download_name=Path(app.config["TEMPLATE_DOWNLOAD_FILE"]).name,
+        )
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(debug=False, host="0.0.0.0", port=5000)

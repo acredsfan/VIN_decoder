@@ -1,23 +1,119 @@
 
 <!doctype html>
-<html>
-<head><title>Status</title></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VIN Decoder Status</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
 <body>
-<p id="status">Starting...</p>
-<script>
-let downloadTriggered = false;
-const interval = setInterval(() => {
-  fetch('/status')
-    .then(response => response.json())
-    .then(data => {
-      document.getElementById('status').innerText = data.progress;
-      if (data.completed && !downloadTriggered) {
-        downloadTriggered = true;
-        clearInterval(interval);
-        window.location.href = '/download/' + data.file;
+  <main class="page-shell status-layout">
+    <div class="navbar">
+      <div class="brand">
+        <span class="brand-badge">VIN</span>
+        <span>Fleet VIN Decoder</span>
+      </div>
+      <a class="nav-pill" href="{{ url_for('index') }}">Start another upload</a>
+    </div>
+
+    <section class="card status-card">
+      <span class="status-pill" id="status-pill">Job running</span>
+      <h1>Decoding in progress</h1>
+      <p class="small-note">Tracking job <code>{{ job_id }}</code></p>
+      <p id="status-text">Preparing your VIN batch…</p>
+
+      <div class="progress-shell" aria-hidden="true">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <div class="status-meta">
+        <div class="stat">
+          <strong id="current-count">0</strong>
+          <span>VINs processed</span>
+        </div>
+        <div class="stat">
+          <strong id="total-count">0</strong>
+          <span>Total VINs queued</span>
+        </div>
+        <div class="stat">
+          <strong id="completion-rate">0%</strong>
+          <span>Completion rate</span>
+        </div>
+      </div>
+
+      <div class="actions-row status-actions">
+        <a class="button" id="download-link" href="#" hidden>Download decoded workbook</a>
+        <a class="button-secondary" href="{{ url_for('index') }}">Back to upload</a>
+      </div>
+
+      <p class="small-note">This page refreshes automatically every few seconds while your file is processing.</p>
+    </section>
+  </main>
+
+  <script>
+    const statusText = document.getElementById('status-text');
+    const progressBar = document.getElementById('progress-bar');
+    const currentCount = document.getElementById('current-count');
+    const totalCount = document.getElementById('total-count');
+    const completionRate = document.getElementById('completion-rate');
+    const downloadLink = document.getElementById('download-link');
+    const statusPill = document.getElementById('status-pill');
+    const statusUrl = {{ url_for('status_for_job', job_id=job_id)|tojson }};
+    const pollIntervalMs = {{ poll_interval_ms|tojson }};
+
+    let downloadTriggered = false;
+
+    function updateStatus(data) {
+      const total = Number(data.total || 0);
+      const current = Number(data.current || 0);
+      const ratio = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+
+      statusText.textContent = data.progress || 'Preparing your VIN batch…';
+      currentCount.textContent = current;
+      totalCount.textContent = total;
+      completionRate.textContent = `${ratio}%`;
+      progressBar.style.width = `${ratio}%`;
+
+      if (data.error) {
+        statusPill.textContent = 'Needs attention';
+        downloadLink.hidden = true;
+        return;
       }
-    });
-}, 5000);
-</script>
+
+      if (data.status === 'completed' && data.download_url) {
+        statusPill.textContent = 'Download ready';
+        statusText.textContent = 'All VINs decoded. Your download should begin automatically.';
+        completionRate.textContent = '100%';
+        progressBar.style.width = '100%';
+        downloadLink.href = data.download_url;
+        downloadLink.hidden = false;
+
+        if (!downloadTriggered) {
+          downloadTriggered = true;
+          window.location.href = data.download_url;
+        }
+      } else if (data.status === 'processing') {
+        statusPill.textContent = 'Job running';
+      } else if (data.status === 'queued') {
+        statusPill.textContent = 'Queued';
+      }
+    }
+
+    const interval = setInterval(() => {
+      fetch(statusUrl)
+        .then((response) => response.json())
+        .then((data) => {
+          updateStatus(data);
+          if (data.completed) {
+            clearInterval(interval);
+          }
+        })
+        .catch(() => {
+          statusPill.textContent = 'Connection issue';
+          statusText.textContent = 'Having trouble refreshing job status. We will keep retrying.';
+        });
+    }, pollIntervalMs);
+  </script>
 </body>
 </html>
